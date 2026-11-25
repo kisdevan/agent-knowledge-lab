@@ -3,7 +3,7 @@
   const CONFIG=window.LAB_CLOUD_CONFIG;
   if(!CONFIG || !window.supabase?.createClient || typeof LabSync==='undefined')return;
   const client=window.supabase.createClient(CONFIG.url,CONFIG.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,flowType:'pkce'}});
-  let current=null, loading=false, message='', errorMessage='', status='기기 저장', accountName='', selectedMode='signin';
+  let current=null, loading=false, authReady=false, pendingSession=null, message='', errorMessage='', status='기기 저장', accountName='', selectedMode='signin';
   const originalSave=save,originalLabSave=labSave;
   let lastSaved={};let generation=0;
   function guestState(){
@@ -17,6 +17,8 @@
   save=function(){return current?syncKinds(['project','research','checks']):originalSave();};
   labSave=function(){return current?syncKinds(['workspaces']):originalLabSave();};
   function paint(){const container=document.querySelector('#lab-account-box');if(!container)return;
+    if(!authReady){container.innerHTML='<strong>학습 기록 계정</strong><p role="status" style="font-size:12px;margin:5px 0">로그인 상태와 학습 기록을 확인하고 있습니다…</p>';return;}
+    if(pendingSession&&!current){container.innerHTML='<strong>학습 기록 계정</strong><p role="status" style="font-size:12px;margin:5px 0">계정은 연결됐지만 기록을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 불러와 주세요.</p><button class="button light" id="cloud-retry-load">기록 다시 불러오기</button>';return;}
     if(current){container.innerHTML='<strong>'+esc(accountName)+'님</strong><div id="cloud-status" style="font-size:12px;margin:6px 0">'+esc(status)+'</div><div class="list"><button class="button light" id="cloud-import-guest">기기 기록 가져오기</button><button class="button light" id="cloud-export-recovery">복구 백업 저장</button><button class="button light" id="cloud-retry">저장 다시 시도</button><button class="button light" id="cloud-logout">로그아웃</button></div>';}
     else container.innerHTML='<strong>학습 기록 계정</strong><p style="font-size:12px;margin:5px 0">로그인하면 내 기록을 다른 기기에서도 이어갈 수 있습니다.</p><button class="button light" id="cloud-open-login">로그인 / 가입</button>';
   }
@@ -30,15 +32,16 @@
     document.body.appendChild(el);
   }
   async function activate(session){
-    const mine=++generation;if(!session?.user){if(current)await current.stop();current=null;accountName='';useDocs(guestState());paint();render();return;}
+    const mine=++generation;if(!session?.user){if(current)await current.stop();current=null;pendingSession=null;authReady=true;accountName='';useDocs(guestState());paint();render();return;}
     if(current && current.user===session.user.id)return;
-    loading=true;status='클라우드 기록 불러오는 중…';paint();
+    loading=true;authReady=false;pendingSession=session;status='클라우드 기록 불러오는 중…';paint();
     const next=new LabSync(client,session.user.id,localStorage,notice);
-    try{const docs=await next.load();if(mine!==generation){await next.stop();return;}if(current)await current.stop();current=next;accountName=session.user.user_metadata?.name||session.user.email||'참여자';useDocs(docs);document.querySelector('#lab-auth-modal')?.remove();paint();render();}
-    catch(e){current=null;status='불러오기 실패';errorMessage='기록을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.';paint();dialog();}
+    try{const docs=await next.load();if(mine!==generation){await next.stop();return;}if(current)await current.stop();current=next;pendingSession=null;authReady=true;accountName=session.user.user_metadata?.name||session.user.email||'참여자';useDocs(docs);document.querySelector('#lab-auth-modal')?.remove();paint();render();}
+    catch(e){if(mine!==generation)return;current=null;authReady=true;status='불러오기 실패';errorMessage='기록을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.';paint();}
     finally{loading=false;}
   }
   document.addEventListener('click',async e=>{
+    if(e.target.id==='cloud-retry-load'&&pendingSession){await activate(pendingSession);}
     if(e.target.id==='cloud-open-login'){selectedMode='signin';message='';errorMessage='';dialog();}
     if(e.target.id==='lab-google-login'){
       if(loading)return;loading=true;e.target.disabled=true;
