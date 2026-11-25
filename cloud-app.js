@@ -2,7 +2,7 @@
 (() => {
   const CONFIG=window.LAB_CLOUD_CONFIG;
   if(!CONFIG || !window.supabase?.createClient || typeof LabSync==='undefined')return;
-  const client=window.supabase.createClient(CONFIG.url,CONFIG.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  const client=window.supabase.createClient(CONFIG.url,CONFIG.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,flowType:'pkce'}});
   let current=null, loading=false, message='', errorMessage='', status='기기 저장', accountName='', selectedMode='signin';
   const originalSave=save,originalLabSave=labSave;
   let lastSaved={};let generation=0;
@@ -26,7 +26,7 @@
     document.querySelector('#lab-auth-modal')?.remove();
     const el=document.createElement('div');el.id='lab-auth-modal';el.style.cssText='position:fixed;inset:0;z-index:9999;background:#0008;display:grid;place-items:center;padding:16px';
     const signing=selectedMode==='signup';
-    el.innerHTML='<section role="dialog" aria-modal="true" aria-label="학습 계정" class="panel" style="width:min(100%,460px);max-height:90vh;overflow:auto"><h2>'+(signing?'학습 계정 만들기':'학습 계정 로그인')+'</h2><p>각자의 학습 기록을 안전하게 보관합니다.</p><form id="lab-auth-form" class="list" style="margin-top:18px">'+(signing?'<label>이름<input required maxlength="40" name="name" style="display:block;width:100%;padding:8px" autocomplete="name"></label>':'')+'<label>이메일<input required type="email" maxlength="254" name="email" style="display:block;width:100%;padding:8px" autocomplete="email"></label><label>비밀번호<input required minlength="8" type="password" name="password" style="display:block;width:100%;padding:8px" autocomplete="'+(signing?'new-password':'current-password')+'"></label><p id="lab-auth-message" role="status">'+esc(errorMessage||message)+'</p><button class="button" type="submit" '+(loading?'disabled':'')+'>'+(loading?'처리 중…':signing?'가입하기':'로그인')+'</button><button type="button" class="button light" id="lab-auth-switch">'+(signing?'이미 계정이 있어요':'계정 만들기')+'</button><button type="button" class="button light" id="lab-auth-close">닫기</button></form></section>';
+    el.innerHTML='<section role="dialog" aria-modal="true" aria-label="학습 계정" class="panel" style="width:min(100%,460px);max-height:90vh;overflow:auto"><h2>'+(signing?'학습 계정 만들기':'학습 계정 로그인')+'</h2><p>각자의 학습 기록을 안전하게 보관합니다.</p><form id="lab-auth-form" class="list" style="margin-top:18px"><button type="button" class="button light" id="lab-google-login">Google 계정으로 계속하기</button>'+(signing?'<label>이름<input required maxlength="40" name="name" style="display:block;width:100%;padding:8px" autocomplete="name"></label>':'')+'<label>이메일<input required type="email" maxlength="254" name="email" style="display:block;width:100%;padding:8px" autocomplete="email"></label><label>비밀번호<input required minlength="8" type="password" name="password" style="display:block;width:100%;padding:8px" autocomplete="'+(signing?'new-password':'current-password')+'"></label><p id="lab-auth-message" role="status">'+esc(errorMessage||message)+'</p><button class="button" type="submit" '+(loading?'disabled':'')+'>'+(loading?'처리 중…':signing?'가입하기':'로그인')+'</button><button type="button" class="button light" id="lab-auth-switch">'+(signing?'이미 계정이 있어요':'계정 만들기')+'</button><button type="button" class="button light" id="lab-auth-close">닫기</button></form></section>';
     document.body.appendChild(el);
   }
   async function activate(session){
@@ -40,6 +40,11 @@
   }
   document.addEventListener('click',async e=>{
     if(e.target.id==='cloud-open-login'){selectedMode='signin';message='';errorMessage='';dialog();}
+    if(e.target.id==='lab-google-login'){
+      if(loading)return;loading=true;e.target.disabled=true;
+      try{const redirectTo=location.origin+location.pathname;const {error}=await client.auth.signInWithOAuth({provider:'google',options:{redirectTo}});if(error)throw error;}
+      catch(err){loading=false;errorMessage='Google 로그인을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.';dialog();}
+    }
     if(e.target.id==='lab-auth-close')document.querySelector('#lab-auth-modal')?.remove();
     if(e.target.id==='lab-auth-switch'){selectedMode=selectedMode==='signin'?'signup':'signin';message='';errorMessage='';dialog();}
     if(e.target.id==='cloud-retry' && current){if(!current.retry())alert('다른 기기에서 수정한 내용과 충돌했습니다. 복구 백업을 저장해 주세요.');}
